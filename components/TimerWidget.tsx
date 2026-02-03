@@ -7,14 +7,16 @@ import { formatDuration } from '../utils';
 const { Option } = Select;
 
 export const TimerWidget: React.FC = () => {
-  const { clients, projects, entries, activeEntry, startTimer, stopTimer, updateActiveEntry, discardTimer } = useTime();
+  const { clients, projects, tasks, entries, activeEntry, startTimer, stopTimer, updateActiveEntry, discardTimer } = useTime();
 
   const [selectedProject, setSelectedProject] = useState<string | undefined>(undefined);
+  const [selectedTask, setSelectedTask] = useState<string | undefined>(undefined);
   const [description, setDescription] = useState('');
   const [elapsed, setElapsed] = useState(0);
 
-  // Get recent projects (last 5 unique projects used)
+  // Get recent projects
   const recentProjects = useMemo(() => {
+    // ... existing logic ...
     const seen = new Set<string>();
     const recent: typeof projects = [];
 
@@ -32,10 +34,11 @@ export const TimerWidget: React.FC = () => {
     return recent;
   }, [entries, projects]);
 
-  // Sync local state with active entry
+  // Sync state with active entry
   useEffect(() => {
     if (activeEntry) {
       setSelectedProject(activeEntry.projectId);
+      setSelectedTask(activeEntry.taskId || undefined); // Sync task
       setDescription(activeEntry.description);
     }
   }, [activeEntry]);
@@ -60,34 +63,45 @@ export const TimerWidget: React.FC = () => {
       message.warning('Selecciona un proyecto primero');
       return;
     }
-    startTimer(selectedProject, description);
+    startTimer(selectedProject, description, selectedTask);
   };
 
   const handleStop = () => {
     stopTimer();
     setDescription('');
     setSelectedProject(undefined);
+    setSelectedTask(undefined);
   };
 
   const handleDescriptionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setDescription(val);
     if (activeEntry && selectedProject) {
-      updateActiveEntry(selectedProject, val);
+      updateActiveEntry(selectedProject, val, selectedTask);
     }
   };
 
   const handleProjectChange = (val: string) => {
     setSelectedProject(val);
+    setSelectedTask(undefined); // Reset task when project changes
     if (activeEntry) {
-      updateActiveEntry(val, description);
+      updateActiveEntry(val, description, undefined);
     }
   };
 
+  const handleTaskChange = (val: string) => {
+    setSelectedTask(val);
+    // Auto-fill description if empty? Maybe not.
+    if (activeEntry && selectedProject) {
+      updateActiveEntry(selectedProject, description, val);
+    }
+  }
+
   const handleQuickStart = (projectId: string) => {
     setSelectedProject(projectId);
+    setSelectedTask(undefined);
     if (!activeEntry) {
-      startTimer(projectId, '');
+      startTimer(projectId, '', undefined);
     }
   };
 
@@ -106,11 +120,11 @@ export const TimerWidget: React.FC = () => {
           />
         </div>
 
-        <div className="w-full md:w-64">
+        <div className="w-full md:w-64 flex gap-2">
           <Select
             showSearch
-            placeholder="Seleccionar proyecto"
-            style={{ width: '100%' }}
+            placeholder="Proyecto"
+            style={{ width: selectedProject ? '50%' : '100%' }}
             size="large"
             value={selectedProject}
             onChange={handleProjectChange}
@@ -129,6 +143,20 @@ export const TimerWidget: React.FC = () => {
               </Select.OptGroup>
             ))}
           </Select>
+          {selectedProject && (
+            <Select
+              placeholder="Tarea (Opcional)"
+              style={{ width: '50%' }}
+              size="large"
+              value={selectedTask}
+              onChange={handleTaskChange}
+              allowClear
+            >
+              {tasks.filter(t => t.projectId === selectedProject && t.status !== 'completed').map(task => ( // Filter tasks by project and active status
+                <Option key={task.id} value={task.id}>{task.title}</Option>
+              ))}
+            </Select>
+          )}
         </div>
 
         <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">

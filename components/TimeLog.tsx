@@ -10,7 +10,7 @@ const { RangePicker } = DatePicker;
 const { Option } = Select;
 
 export const TimeLog: React.FC = () => {
-  const { entries, clients, projects, deleteEntry, addManualEntry, updateEntry, startTimer } = useTime();
+  const { entries, clients, projects, tasks, deleteEntry, addManualEntry, updateEntry, startTimer } = useTime();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<typeof entries[0] | null>(null);
@@ -58,6 +58,7 @@ export const TimeLog: React.FC = () => {
     setEditingEntry(entry);
     form.setFieldsValue({
       projectId: entry.projectId,
+      taskId: entry.taskId,
       description: entry.description,
       date: dayjs(entry.startTime),
       startTime: dayjs(entry.startTime),
@@ -67,7 +68,7 @@ export const TimeLog: React.FC = () => {
   };
 
   const handleSubmit = (values: any) => {
-    const { projectId, description, date, startTime, endTime } = values;
+    const { projectId, taskId, description, date, startTime, endTime } = values;
 
     // Combine date with times
     const startDateTime = date.hour(startTime.hour()).minute(startTime.minute()).second(0).valueOf();
@@ -79,10 +80,10 @@ export const TimeLog: React.FC = () => {
     }
 
     if (editingEntry) {
-      updateEntry(editingEntry.id, projectId, description || '', startDateTime, endDateTime);
+      updateEntry(editingEntry.id, projectId, description || '', startDateTime, endDateTime, taskId);
       message.success('Entrada actualizada');
     } else {
-      addManualEntry(projectId, description || '', startDateTime, endDateTime);
+      addManualEntry(projectId, description || '', startDateTime, endDateTime, taskId);
       message.success('Entrada añadida');
     }
 
@@ -91,7 +92,7 @@ export const TimeLog: React.FC = () => {
   };
 
   const handleResume = (entry: typeof entries[0]) => {
-    startTimer(entry.projectId, entry.description || '');
+    startTimer(entry.projectId, entry.description || '', entry.taskId);
     message.success('Tarea retomada: ' + (entry.description || 'Sin descripción'));
   };
 
@@ -99,6 +100,9 @@ export const TimeLog: React.FC = () => {
     setDateRange(null);
     setFilterProject(undefined);
   };
+
+  // Watch for project changes in form to filter tasks
+  const selectedFormProject = Form.useWatch('projectId', form);
 
   const columns = [
     {
@@ -114,6 +118,7 @@ export const TimeLog: React.FC = () => {
       key: 'project',
       render: (_: any, record: any) => {
         const { proj, client } = getProjectDetails(record.projectId);
+        const task = tasks.find(t => t.id === record.taskId);
         return (
           <div className="flex flex-col">
             <Text strong className="text-gray-700">{client?.name || 'Cliente desconocido'}</Text>
@@ -121,6 +126,11 @@ export const TimeLog: React.FC = () => {
               {proj && <span className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: proj.color }}></span>}
               <span className="text-gray-500 text-sm">{proj?.name || 'Proyecto desconocido'}</span>
             </div>
+            {task && (
+              <div className="mt-1">
+                <Tag color="cyan">{task.title}</Tag>
+              </div>
+            )}
           </div>
         );
       },
@@ -275,6 +285,14 @@ export const TimeLog: React.FC = () => {
                     </Option>
                   ))}
                 </Select.OptGroup>
+              ))}
+            </Select>
+          </Form.Item>
+
+          <Form.Item name="taskId" label="Tarea (Opcional)">
+            <Select placeholder="Selecciona una tarea" allowClear disabled={!selectedFormProject}>
+              {tasks.filter(t => t.projectId === selectedFormProject).map(t => (
+                <Option key={t.id} value={t.id}>{t.title} ({t.status})</Option>
               ))}
             </Select>
           </Form.Item>

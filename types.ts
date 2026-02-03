@@ -10,9 +10,20 @@ export interface Project {
   color: string;
 }
 
+export interface Task {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  assignedTo: string | null;
+  createdBy: string;
+}
+
 export interface TimeEntry {
   id: string;
   projectId: string;
+  taskId?: string; // Optional task association
   description: string;
   startTime: number;
   endTime: number | null; // null means currently running
@@ -20,6 +31,7 @@ export interface TimeEntry {
 
 export interface ActiveTimer {
   projectId: string | null;
+  taskId?: string | null;
   description: string;
   startTime: number;
 }

@@ -125,3 +125,35 @@ create policy "Users can update their own entries." on timeflow.time_entries
 
 create policy "Users can delete their own entries." on timeflow.time_entries
   for delete using (auth.uid() = user_id);
+
+
+-- 6. TASKS Table
+create table timeflow.tasks (
+  id uuid default gen_random_uuid() primary key,
+  project_id uuid references timeflow.projects not null,
+  title text not null,
+  description text,
+  status text check (status in ('pending', 'in_progress', 'completed')) default 'pending',
+  assigned_to uuid references auth.users,
+  created_by uuid references auth.users not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table timeflow.tasks enable row level security;
+
+create policy "Users can view all tasks." on timeflow.tasks
+  for select using (true);
+
+create policy "Users can insert tasks." on timeflow.tasks
+  for insert with check (auth.uid() = created_by);
+
+create policy "Users can update tasks." on timeflow.tasks
+  for update using (true); 
+
+create policy "Users can delete their own tasks." on timeflow.tasks
+  for delete using (auth.uid() = created_by);
+
+-- 7. Update TIME_ENTRIES for Tasks
+alter table timeflow.time_entries 
+add column task_id uuid references timeflow.tasks;

@@ -6,6 +6,7 @@ import {
   SettingOutlined,
   ThunderboltFilled,
   CalendarOutlined,
+  CheckSquareOutlined,
   LogoutOutlined
 } from '@ant-design/icons';
 import { TimeProvider, useTime } from './context/TimeContext';
@@ -16,6 +17,7 @@ import { Management } from './components/Management';
 import { Reports } from './components/Reports';
 import { Calendar } from './components/Calendar';
 import { Auth } from './components/Auth';
+import { Tasks } from './components/Tasks';
 
 const { Header, Content, Sider } = Layout;
 
@@ -75,6 +77,8 @@ const AuthenticatedAppContent: React.FC<{
         );
       case 'calendar':
         return <Calendar />;
+      case 'tasks':
+        return <Tasks />;
       case 'reports':
         return <Reports />;
       case 'manage':
@@ -120,6 +124,11 @@ const AuthenticatedAppContent: React.FC<{
               key: 'calendar',
               icon: <CalendarOutlined />,
               label: 'Calendario',
+            },
+            {
+              key: 'tasks',
+              icon: <CheckSquareOutlined />,
+              label: 'Tareas',
             },
             {
               key: 'reports',

@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Client, Project, TimeEntry } from '../types';
+import { Client, Project, TimeEntry, Task } from '../types';
 import { generateId } from '../utils';
 import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
@@ -9,6 +9,7 @@ import { message } from 'antd';
 interface TimeContextType {
   clients: Client[];
   projects: Project[];
+  tasks: Task[];
   entries: TimeEntry[];
   activeEntry: TimeEntry | null;
   loadingData: boolean;
@@ -17,14 +18,16 @@ interface TimeContextType {
   deleteClient: (id: string) => Promise<void>;
   addProject: (name: string, clientId: string, color: string) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
+  addTask: (projectId: string, title: string, description?: string, assignedTo?: string) => Promise<void>;
+  updateTaskStatus: (taskId: string, status: 'pending' | 'in_progress' | 'completed') => Promise<void>;
 
-  startTimer: (projectId: string, description: string) => Promise<void>;
+  startTimer: (projectId: string, description: string, taskId?: string) => Promise<void>;
   stopTimer: () => Promise<void>;
   discardTimer: () => Promise<void>;
-  updateActiveEntry: (projectId: string, description: string) => Promise<void>;
+  updateActiveEntry: (projectId: string, description: string, taskId?: string) => Promise<void>;
   deleteEntry: (id: string) => Promise<void>;
-  addManualEntry: (projectId: string, description: string, startTime: number, endTime: number) => Promise<void>;
-  updateEntry: (id: string, projectId: string, description: string, startTime: number, endTime: number) => Promise<void>;
+  addManualEntry: (projectId: string, description: string, startTime: number, endTime: number, taskId?: string) => Promise<void>;
+  updateEntry: (id: string, projectId: string, description: string, startTime: number, endTime: number, taskId?: string) => Promise<void>;
 }
 
 const TimeContext = createContext<TimeContextType | undefined>(undefined);
@@ -33,6 +36,7 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const { user } = useAuth();
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [loadingData, setLoadingData] = useState(false);
 
@@ -45,6 +49,7 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } else {
       setClients([]);
       setProjects([]);
+      setTasks([]);
       setEntries([]);
     }
   }, [user]);
@@ -60,26 +65,32 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (projectsError) throw projectsError;
       setProjects(projectsData || []);
 
+      const { data: tasksData, error: tasksError } = await supabase.from('tasks').select('*');
+      if (tasksError) throw tasksError;
+
+      const mappedTasks = (tasksData || []).map((t: any) => ({
+        id: t.id,
+        projectId: t.project_id,
+        title: t.title,
+        description: t.description,
+        status: t.status,
+        assignedTo: t.assigned_to,
+        createdBy: t.created_by
+      }));
+      setTasks(mappedTasks);
+
       const { data: entriesData, error: entriesError } = await supabase.from('time_entries').select('*').order('start_time', { ascending: false });
       if (entriesError) throw entriesError;
 
-      // Map database fields to types if necessary (snake_case to camelCase is handled if types match, 
-      // but here we used camelCase in types.ts. Supabase returns snake_case by default usually, 
-      // but let's check. My SQL schema uses snake_case: user_id, project_id, start_time.
-      // My local types use camelCase: userId, projectId, startTime.
-      // I need to map them!)
       const mappedEntries = (entriesData || []).map((e: any) => ({
         id: e.id,
         projectId: e.project_id,
+        taskId: e.task_id,
         userId: e.user_id,
         description: e.description,
         startTime: parseInt(e.start_time),
         endTime: e.end_time ? parseInt(e.end_time) : null
       }));
-
-      // Also map projects and clients if needed. 
-      // Clients: user_id -> userId (optional in type), name -> name.
-      // Projects: user_id -> userId, client_id -> clientId, name, color.
 
       const mappedProjects = (projectsData || []).map((p: any) => ({
         id: p.id,
@@ -170,7 +181,46 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const startTimer = async (projectId: string, description: string) => {
+  const addTask = async (projectId: string, title: string, description?: string, assignedTo?: string) => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase.from('tasks').insert([{
+        project_id: projectId,
+        title,
+        description,
+        assigned_to: assignedTo,
+        created_by: user.id,
+        status: 'pending'
+      }]).select().single();
+
+      if (error) throw error;
+
+      const newTask: Task = {
+        id: data.id,
+        projectId: data.project_id,
+        title: data.title,
+        description: data.description,
+        status: data.status as any,
+        assignedTo: data.assigned_to,
+        createdBy: data.created_by
+      };
+      setTasks(prev => [newTask, ...prev]);
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
+  const updateTaskStatus = async (taskId: string, status: 'pending' | 'in_progress' | 'completed') => {
+    try {
+      const { error } = await supabase.from('tasks').update({ status }).eq('id', taskId);
+      if (error) throw error;
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status } : t));
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
+  const startTimer = async (projectId: string, description: string, taskId?: string) => {
     if (!user) return;
 
     // If active entry, stop it first
@@ -183,6 +233,7 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const { data, error } = await supabase.from('time_entries').insert([{
         user_id: user.id,
         project_id: projectId,
+        task_id: taskId,
         description,
         start_time: startTime,
         end_time: null
@@ -194,6 +245,7 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         id: data.id,
         userId: data.user_id,
         projectId: data.project_id,
+        taskId: data.task_id,
         description: data.description,
         startTime: parseInt(data.start_time),
         endTime: null
@@ -234,18 +286,19 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const updateActiveEntry = async (projectId: string, description: string) => {
+  const updateActiveEntry = async (projectId: string, description: string, taskId?: string) => {
     if (!activeEntry) return;
     try {
       const { error } = await supabase.from('time_entries').update({
         project_id: projectId,
+        task_id: taskId,
         description
       }).eq('id', activeEntry.id);
 
       if (error) throw error;
 
       setEntries(prev => prev.map(e =>
-        e.id === activeEntry.id ? { ...e, projectId, description } : e
+        e.id === activeEntry.id ? { ...e, projectId, description, taskId } : e
       ));
     } catch (e: any) {
       message.error(e.message);
@@ -262,12 +315,13 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const addManualEntry = async (projectId: string, description: string, startTime: number, endTime: number) => {
+  const addManualEntry = async (projectId: string, description: string, startTime: number, endTime: number, taskId?: string) => {
     if (!user) return;
     try {
       const { data, error } = await supabase.from('time_entries').insert([{
         user_id: user.id,
         project_id: projectId,
+        task_id: taskId,
         description,
         start_time: startTime,
         end_time: endTime
@@ -279,6 +333,7 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         id: data.id,
         userId: data.user_id,
         projectId: data.project_id,
+        taskId: data.task_id,
         description: data.description,
         startTime: parseInt(data.start_time),
         endTime: parseInt(data.end_time)
@@ -289,10 +344,11 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const updateEntry = async (id: string, projectId: string, description: string, startTime: number, endTime: number) => {
+  const updateEntry = async (id: string, projectId: string, description: string, startTime: number, endTime: number, taskId?: string) => {
     try {
       const { error } = await supabase.from('time_entries').update({
         project_id: projectId,
+        task_id: taskId,
         description,
         start_time: startTime,
         end_time: endTime
@@ -301,7 +357,7 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (error) throw error;
 
       setEntries(prev => prev.map(e =>
-        e.id === id ? { ...e, projectId, description, startTime, endTime } : e
+        e.id === id ? { ...e, projectId, description, startTime, endTime, taskId } : e
       ).sort((a, b) => b.startTime - a.startTime));
     } catch (e: any) {
       message.error(e.message);
@@ -312,6 +368,7 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     <TimeContext.Provider value={{
       clients,
       projects,
+      tasks,
       entries,
       activeEntry,
       loadingData,
@@ -319,6 +376,8 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       deleteClient,
       addProject,
       deleteProject,
+      addTask,
+      updateTaskStatus,
       startTimer,
       stopTimer,
       discardTimer,
