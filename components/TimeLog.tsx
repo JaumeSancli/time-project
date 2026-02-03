@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Table, Tag, Button, Empty, Typography, Modal, Form, Input, Select, DatePicker, TimePicker, Space, Popconfirm, message } from 'antd';
-import { DeleteOutlined, EditOutlined, PlusOutlined, FilterOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, PlusOutlined, FilterOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import { useTime } from '../context/TimeContext';
 import { formatDuration } from '../utils';
 import dayjs, { Dayjs } from 'dayjs';
@@ -10,7 +10,7 @@ const { RangePicker } = DatePicker;
 const { Option } = Select;
 
 export const TimeLog: React.FC = () => {
-  const { entries, clients, projects, deleteEntry, addManualEntry, updateEntry } = useTime();
+  const { entries, clients, projects, deleteEntry, addManualEntry, updateEntry, startTimer } = useTime();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<typeof entries[0] | null>(null);
@@ -90,6 +90,11 @@ export const TimeLog: React.FC = () => {
     form.resetFields();
   };
 
+  const handleResume = (entry: typeof entries[0]) => {
+    startTimer(entry.projectId, entry.description || '');
+    message.success('Tarea retomada: ' + (entry.description || 'Sin descripción'));
+  };
+
   const clearFilters = () => {
     setDateRange(null);
     setFilterProject(undefined);
@@ -149,10 +154,16 @@ export const TimeLog: React.FC = () => {
     {
       title: 'Acciones',
       key: 'action',
-      width: 100,
+      width: 140,
       align: 'center' as const,
       render: (_: any, record: any) => (
         <Space>
+          <Button
+            type="text"
+            icon={<PlayCircleOutlined />}
+            title="Retomar tarea"
+            onClick={() => handleResume(record)}
+          />
           <Button
             type="text"
             icon={<EditOutlined />}

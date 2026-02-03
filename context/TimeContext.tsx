@@ -1,135 +1,311 @@
+
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Client, Project, TimeEntry } from '../types';
 import { generateId } from '../utils';
+import { supabase } from '../supabaseClient';
+import { useAuth } from './AuthContext';
+import { message } from 'antd';
 
 interface TimeContextType {
   clients: Client[];
   projects: Project[];
   entries: TimeEntry[];
   activeEntry: TimeEntry | null;
+  loadingData: boolean;
 
-  addClient: (name: string) => void;
-  deleteClient: (id: string) => void;
-  addProject: (name: string, clientId: string, color: string) => void;
-  deleteProject: (id: string) => void;
+  addClient: (name: string) => Promise<void>;
+  deleteClient: (id: string) => Promise<void>;
+  addProject: (name: string, clientId: string, color: string) => Promise<void>;
+  deleteProject: (id: string) => Promise<void>;
 
-  startTimer: (projectId: string, description: string) => void;
-  stopTimer: () => void;
-  discardTimer: () => void;
-  updateActiveEntry: (projectId: string, description: string) => void;
-  deleteEntry: (id: string) => void;
-  addManualEntry: (projectId: string, description: string, startTime: number, endTime: number) => void;
-  updateEntry: (id: string, projectId: string, description: string, startTime: number, endTime: number) => void;
+  startTimer: (projectId: string, description: string) => Promise<void>;
+  stopTimer: () => Promise<void>;
+  discardTimer: () => Promise<void>;
+  updateActiveEntry: (projectId: string, description: string) => Promise<void>;
+  deleteEntry: (id: string) => Promise<void>;
+  addManualEntry: (projectId: string, description: string, startTime: number, endTime: number) => Promise<void>;
+  updateEntry: (id: string, projectId: string, description: string, startTime: number, endTime: number) => Promise<void>;
 }
 
 const TimeContext = createContext<TimeContextType | undefined>(undefined);
 
-// LocalStorage Keys
-const STORAGE_KEYS = {
-  CLIENTS: 'timeflow_clients',
-  PROJECTS: 'timeflow_projects',
-  ENTRIES: 'timeflow_entries',
-};
-
 export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
+  const [loadingData, setLoadingData] = useState(false);
 
   // Derived state: find the entry that is currently running (endTime is null)
   const activeEntry = entries.find(e => e.endTime === null) || null;
 
-  // Load from LocalStorage on mount
   useEffect(() => {
-    const loadedClients = localStorage.getItem(STORAGE_KEYS.CLIENTS);
-    const loadedProjects = localStorage.getItem(STORAGE_KEYS.PROJECTS);
-    const loadedEntries = localStorage.getItem(STORAGE_KEYS.ENTRIES);
+    if (user) {
+      fetchData();
+    } else {
+      setClients([]);
+      setProjects([]);
+      setEntries([]);
+    }
+  }, [user]);
 
-    if (loadedClients) setClients(JSON.parse(loadedClients));
-    if (loadedProjects) setProjects(JSON.parse(loadedProjects));
-    if (loadedEntries) setEntries(JSON.parse(loadedEntries));
-  }, []);
+  const fetchData = async () => {
+    setLoadingData(true);
+    try {
+      const { data: clientsData, error: clientsError } = await supabase.from('clients').select('*');
+      if (clientsError) throw clientsError;
+      setClients(clientsData || []);
 
-  // Save to LocalStorage whenever state changes
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CLIENTS, JSON.stringify(clients));
-    localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
-    localStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(entries));
-  }, [clients, projects, entries]);
+      const { data: projectsData, error: projectsError } = await supabase.from('projects').select('*');
+      if (projectsError) throw projectsError;
+      setProjects(projectsData || []);
+
+      const { data: entriesData, error: entriesError } = await supabase.from('time_entries').select('*').order('start_time', { ascending: false });
+      if (entriesError) throw entriesError;
+
+      // Map database fields to types if necessary (snake_case to camelCase is handled if types match, 
+      // but here we used camelCase in types.ts. Supabase returns snake_case by default usually, 
+      // but let's check. My SQL schema uses snake_case: user_id, project_id, start_time.
+      // My local types use camelCase: userId, projectId, startTime.
+      // I need to map them!)
+      const mappedEntries = (entriesData || []).map((e: any) => ({
+        id: e.id,
+        projectId: e.project_id,
+        userId: e.user_id,
+        description: e.description,
+        startTime: parseInt(e.start_time),
+        endTime: e.end_time ? parseInt(e.end_time) : null
+      }));
+
+      // Also map projects and clients if needed. 
+      // Clients: user_id -> userId (optional in type), name -> name.
+      // Projects: user_id -> userId, client_id -> clientId, name, color.
+
+      const mappedProjects = (projectsData || []).map((p: any) => ({
+        id: p.id,
+        userId: p.user_id,
+        clientId: p.client_id,
+        name: p.name,
+        color: p.color
+      }));
+
+      const mappedClients = (clientsData || []).map((c: any) => ({
+        id: c.id,
+        userId: c.user_id,
+        name: c.name
+      }));
+
+      setEntries(mappedEntries);
+      setProjects(mappedProjects);
+      setClients(mappedClients);
+
+    } catch (error: any) {
+      message.error('Error fetching data: ' + error.message);
+    } finally {
+      setLoadingData(false);
+    }
+  };
 
   // --- Actions ---
 
-  const addClient = (name: string) => {
-    const newClient: Client = { id: generateId(), name };
-    setClients(prev => [...prev, newClient]);
-  };
+  const addClient = async (name: string) => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase.from('clients').insert([{
+        user_id: user.id,
+        name
+      }]).select().single();
 
-  const deleteClient = (id: string) => {
-    setClients(prev => prev.filter(c => c.id !== id));
-    // Cascade delete projects? For now, we'll keep them or user manually deletes
-  };
+      if (error) throw error;
 
-  const addProject = (name: string, clientId: string, color: string) => {
-    const newProject: Project = { id: generateId(), name, clientId, color };
-    setProjects(prev => [...prev, newProject]);
-  };
-
-  const deleteProject = (id: string) => {
-    setProjects(prev => prev.filter(p => p.id !== id));
-  };
-
-  const startTimer = (projectId: string, description: string) => {
-    if (activeEntry) {
-      stopTimer(); // Auto stop previous if exists
+      const newClient = { id: data.id, userId: data.user_id, name: data.name };
+      setClients(prev => [...prev, newClient]);
+    } catch (e: any) {
+      message.error(e.message);
     }
-    const newEntry: TimeEntry = {
-      id: generateId(),
-      projectId,
-      description,
-      startTime: Date.now(),
-      endTime: null,
-    };
-    setEntries(prev => [newEntry, ...prev]);
   };
 
-  const stopTimer = () => {
-    if (!activeEntry) return;
-    setEntries(prev => prev.map(e =>
-      e.id === activeEntry.id ? { ...e, endTime: Date.now() } : e
-    ));
+  const deleteClient = async (id: string) => {
+    try {
+      const { error } = await supabase.from('clients').delete().eq('id', id);
+      if (error) throw error;
+      setClients(prev => prev.filter(c => c.id !== id));
+    } catch (e: any) {
+      message.error(e.message);
+    }
   };
 
-  const discardTimer = () => {
-    if (!activeEntry) return;
-    setEntries(prev => prev.filter(e => e.id !== activeEntry.id));
+  const addProject = async (name: string, clientId: string, color: string) => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase.from('projects').insert([{
+        user_id: user.id,
+        client_id: clientId,
+        name,
+        color
+      }]).select().single();
+
+      if (error) throw error;
+
+      const newProject = {
+        id: data.id,
+        userId: data.user_id,
+        clientId: data.client_id,
+        name: data.name,
+        color: data.color
+      };
+      setProjects(prev => [...prev, newProject]);
+    } catch (e: any) {
+      message.error(e.message);
+    }
   };
 
-  const updateActiveEntry = (projectId: string, description: string) => {
+  const deleteProject = async (id: string) => {
+    try {
+      const { error } = await supabase.from('projects').delete().eq('id', id);
+      if (error) throw error;
+      setProjects(prev => prev.filter(p => p.id !== id));
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
+  const startTimer = async (projectId: string, description: string) => {
+    if (!user) return;
+
+    // If active entry, stop it first
+    if (activeEntry) {
+      await stopTimer();
+    }
+
+    try {
+      const startTime = Date.now();
+      const { data, error } = await supabase.from('time_entries').insert([{
+        user_id: user.id,
+        project_id: projectId,
+        description,
+        start_time: startTime,
+        end_time: null
+      }]).select().single();
+
+      if (error) throw error;
+
+      const newEntry = {
+        id: data.id,
+        userId: data.user_id,
+        projectId: data.project_id,
+        description: data.description,
+        startTime: parseInt(data.start_time),
+        endTime: null
+      };
+      setEntries(prev => [newEntry, ...prev]);
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
+  const stopTimer = async () => {
     if (!activeEntry) return;
-    setEntries(prev => prev.map(e =>
-      e.id === activeEntry.id ? { ...e, projectId, description } : e
-    ));
+
+    try {
+      const endTime = Date.now();
+      const { error } = await supabase.from('time_entries').update({
+        end_time: endTime
+      }).eq('id', activeEntry.id);
+
+      if (error) throw error;
+
+      setEntries(prev => prev.map(e =>
+        e.id === activeEntry.id ? { ...e, endTime } : e
+      ));
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
+  const discardTimer = async () => {
+    if (!activeEntry) return;
+    try {
+      const { error } = await supabase.from('time_entries').delete().eq('id', activeEntry.id);
+      if (error) throw error;
+      setEntries(prev => prev.filter(e => e.id !== activeEntry.id));
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
+  const updateActiveEntry = async (projectId: string, description: string) => {
+    if (!activeEntry) return;
+    try {
+      const { error } = await supabase.from('time_entries').update({
+        project_id: projectId,
+        description
+      }).eq('id', activeEntry.id);
+
+      if (error) throw error;
+
+      setEntries(prev => prev.map(e =>
+        e.id === activeEntry.id ? { ...e, projectId, description } : e
+      ));
+    } catch (e: any) {
+      message.error(e.message);
+    }
   }
 
-  const deleteEntry = (id: string) => {
-    setEntries(prev => prev.filter(e => e.id !== id));
+  const deleteEntry = async (id: string) => {
+    try {
+      const { error } = await supabase.from('time_entries').delete().eq('id', id);
+      if (error) throw error;
+      setEntries(prev => prev.filter(e => e.id !== id));
+    } catch (e: any) {
+      message.error(e.message);
+    }
   };
 
-  const addManualEntry = (projectId: string, description: string, startTime: number, endTime: number) => {
-    const newEntry: TimeEntry = {
-      id: generateId(),
-      projectId,
-      description,
-      startTime,
-      endTime,
-    };
-    setEntries(prev => [newEntry, ...prev].sort((a, b) => b.startTime - a.startTime));
+  const addManualEntry = async (projectId: string, description: string, startTime: number, endTime: number) => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase.from('time_entries').insert([{
+        user_id: user.id,
+        project_id: projectId,
+        description,
+        start_time: startTime,
+        end_time: endTime
+      }]).select().single();
+
+      if (error) throw error;
+
+      const newEntry = {
+        id: data.id,
+        userId: data.user_id,
+        projectId: data.project_id,
+        description: data.description,
+        startTime: parseInt(data.start_time),
+        endTime: parseInt(data.end_time)
+      };
+      setEntries(prev => [newEntry, ...prev].sort((a, b) => b.startTime - a.startTime));
+    } catch (e: any) {
+      message.error(e.message);
+    }
   };
 
-  const updateEntry = (id: string, projectId: string, description: string, startTime: number, endTime: number) => {
-    setEntries(prev => prev.map(e =>
-      e.id === id ? { ...e, projectId, description, startTime, endTime } : e
-    ).sort((a, b) => b.startTime - a.startTime));
+  const updateEntry = async (id: string, projectId: string, description: string, startTime: number, endTime: number) => {
+    try {
+      const { error } = await supabase.from('time_entries').update({
+        project_id: projectId,
+        description,
+        start_time: startTime,
+        end_time: endTime
+      }).eq('id', id);
+
+      if (error) throw error;
+
+      setEntries(prev => prev.map(e =>
+        e.id === id ? { ...e, projectId, description, startTime, endTime } : e
+      ).sort((a, b) => b.startTime - a.startTime));
+    } catch (e: any) {
+      message.error(e.message);
+    }
   };
 
   return (
@@ -138,6 +314,7 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       projects,
       entries,
       activeEntry,
+      loadingData,
       addClient,
       deleteClient,
       addProject,

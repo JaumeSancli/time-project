@@ -1,28 +1,67 @@
 import React, { useState } from 'react';
-import { Layout, Menu, ConfigProvider, theme } from 'antd';
+import { Layout, Menu, ConfigProvider, theme, Spin } from 'antd';
 import {
   ClockCircleOutlined,
   BarChartOutlined,
   SettingOutlined,
   ThunderboltFilled,
-  CalendarOutlined
+  CalendarOutlined,
+  LogoutOutlined
 } from '@ant-design/icons';
-import { TimeProvider } from './context/TimeContext';
+import { TimeProvider, useTime } from './context/TimeContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { TimerWidget } from './components/TimerWidget';
 import { TimeLog } from './components/TimeLog';
 import { Management } from './components/Management';
 import { Reports } from './components/Reports';
 import { Calendar } from './components/Calendar';
+import { Auth } from './components/Auth';
 
 const { Header, Content, Sider } = Layout;
 
 const AppContent: React.FC = () => {
+  const { user, signOut, loading } = useAuth();
   const [currentView, setCurrentView] = useState('tracker');
   const {
     token: { colorBgContainer },
   } = theme.useToken();
 
+  // Need to checking loading state of Auth to prevent flash of login screen
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center"><Spin size="large" /></div>;
+  }
+
+  if (!user) {
+    return <Auth />;
+  }
+
+  return (
+    <AuthenticatedAppContent
+      currentView={currentView}
+      setCurrentView={setCurrentView}
+      colorBgContainer={colorBgContainer}
+      signOut={signOut}
+    />
+  );
+};
+
+// Separated to use hooks that depend on TimeProvider if needed (though Auth is outside)
+const AuthenticatedAppContent: React.FC<{
+  currentView: string,
+  setCurrentView: (v: string) => void,
+  colorBgContainer: string,
+  signOut: () => void
+}> = ({ currentView, setCurrentView, colorBgContainer, signOut }) => {
+
+  // We can access useTime here if we want to show loading state for data
+  const { loadingData } = useTime();
+
   const renderContent = () => {
+    if (loadingData && currentView === 'tracker' && false) {
+      // Optional: Show loading spinner for data. Disabling for now to allow UI to render empty first
+      // or we can handle it inside components.
+    }
+
     switch (currentView) {
       case 'tracker':
         return (
@@ -63,7 +102,13 @@ const AppContent: React.FC = () => {
           mode="inline"
           defaultSelectedKeys={['tracker']}
           selectedKeys={[currentView]}
-          onClick={({ key }) => setCurrentView(key)}
+          onClick={({ key }) => {
+            if (key === 'logout') {
+              signOut();
+            } else {
+              setCurrentView(key);
+            }
+          }}
           className="border-r-0 mt-4 px-2"
           items={[
             {
@@ -89,6 +134,15 @@ const AppContent: React.FC = () => {
               icon: <SettingOutlined />,
               label: 'Gestión',
             },
+            {
+              type: 'divider'
+            },
+            {
+              key: 'logout',
+              icon: <LogoutOutlined />,
+              label: 'Cerrar Sesión',
+              danger: true
+            }
           ]}
         />
       </Sider>
@@ -104,7 +158,7 @@ const AppContent: React.FC = () => {
       </Layout>
     </Layout>
   );
-};
+}
 
 const App: React.FC = () => {
   return (
@@ -117,9 +171,11 @@ const App: React.FC = () => {
         },
       }}
     >
-      <TimeProvider>
-        <AppContent />
-      </TimeProvider>
+      <AuthProvider>
+        <TimeProvider>
+          <AppContent />
+        </TimeProvider>
+      </AuthProvider>
     </ConfigProvider>
   );
 };
