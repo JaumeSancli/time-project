@@ -8,6 +8,7 @@ export interface Project {
   name: string;
   clientId: string;
   color: string;
+  isShared?: boolean;
 }
 
 export interface Task {

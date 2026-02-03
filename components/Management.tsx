@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Row, Col, Card, List, Button, Input, Modal, Form, Select, ColorPicker, Typography, Popconfirm, Tag, Empty } from 'antd';
-import { PlusOutlined, DeleteOutlined, UserOutlined, ProjectOutlined } from '@ant-design/icons';
+import { Row, Col, Card, List, Button, Input, Modal, Form, Select, ColorPicker, Typography, Popconfirm, Tag, Empty, Checkbox } from 'antd';
+import { PlusOutlined, DeleteOutlined, UserOutlined, ProjectOutlined, TeamOutlined } from '@ant-design/icons';
 import { useTime } from '../context/TimeContext';
 
 const { Title } = Typography;
@@ -20,9 +20,9 @@ export const Management: React.FC = () => {
     formClient.resetFields();
   };
 
-  const handleCreateProject = (values: { name: string; clientId: string; color: any }) => {
+  const handleCreateProject = (values: { name: string; clientId: string; color: any; isShared: boolean }) => {
     const colorHex = typeof values.color === 'string' ? values.color : values.color.toHexString();
-    addProject(values.name, values.clientId, colorHex);
+    addProject(values.name, values.clientId, colorHex, values.isShared);
     setIsProjectModalOpen(false);
     formProject.resetFields();
   };
@@ -91,7 +91,7 @@ export const Management: React.FC = () => {
                     >
                       <List.Item.Meta
                         avatar={<div className="w-4 h-4 rounded-full mt-1" style={{ backgroundColor: project.color }} />}
-                        title={project.name}
+                        title={<span>{project.name} {project.isShared && <Tag color="blue" icon={<TeamOutlined />}>Compartido</Tag>}</span>}
                         description={<Tag>{client?.name || 'Desconocido'}</Tag>}
                       />
                     </List.Item>
@@ -129,6 +129,9 @@ export const Management: React.FC = () => {
           </Form.Item>
           <Form.Item name="color" label="Color">
             <ColorPicker showText />
+          </Form.Item>
+          <Form.Item name="isShared" valuePropName="checked">
+            <Checkbox>Compartir este proyecto con otros usuarios</Checkbox>
           </Form.Item>
           <div className="flex justify-end gap-2">
             <Button onClick={() => setIsProjectModalOpen(false)}>Cancelar</Button>

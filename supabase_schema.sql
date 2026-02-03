@@ -83,13 +83,14 @@ create table timeflow.projects (
   client_id uuid references timeflow.clients not null,
   name text not null,
   color text default '#1677ff',
+  is_shared boolean default false,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
 alter table timeflow.projects enable row level security;
 
-create policy "Users can view their own projects." on timeflow.projects
-  for select using (auth.uid() = user_id);
+create policy "Users can view their own or shared projects." on timeflow.projects
+  for select using (auth.uid() = user_id or is_shared = true);
 
 create policy "Users can insert their own projects." on timeflow.projects
   for insert with check (auth.uid() = user_id);

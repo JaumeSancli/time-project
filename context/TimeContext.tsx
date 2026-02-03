@@ -16,7 +16,7 @@ interface TimeContextType {
 
   addClient: (name: string) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
-  addProject: (name: string, clientId: string, color: string) => Promise<void>;
+  addProject: (name: string, clientId: string, color: string, isShared: boolean) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   addTask: (projectId: string, title: string, description?: string, assignedTo?: string) => Promise<void>;
   updateTaskStatus: (taskId: string, status: 'pending' | 'in_progress' | 'completed') => Promise<void>;
@@ -97,7 +97,8 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         userId: p.user_id,
         clientId: p.client_id,
         name: p.name,
-        color: p.color
+        color: p.color,
+        isShared: p.is_shared
       }));
 
       const mappedClients = (clientsData || []).map((c: any) => ({
@@ -146,14 +147,15 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const addProject = async (name: string, clientId: string, color: string) => {
+  const addProject = async (name: string, clientId: string, color: string, isShared: boolean) => {
     if (!user) return;
     try {
       const { data, error } = await supabase.from('projects').insert([{
         user_id: user.id,
         client_id: clientId,
         name,
-        color
+        color,
+        is_shared: isShared
       }]).select().single();
 
       if (error) throw error;
@@ -163,7 +165,8 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         userId: data.user_id,
         clientId: data.client_id,
         name: data.name,
-        color: data.color
+        color: data.color,
+        isShared: data.is_shared
       };
       setProjects(prev => [...prev, newProject]);
     } catch (e: any) {
