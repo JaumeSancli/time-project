@@ -19,6 +19,8 @@ interface TimeContextType {
   addProject: (name: string, clientId: string, color: string, isShared: boolean) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   addTask: (projectId: string, title: string, description?: string, assignedTo?: string) => Promise<void>;
+  updateTask: (taskId: string, updates: Partial<Task>) => Promise<void>;
+  deleteTask: (taskId: string) => Promise<void>;
   updateTaskStatus: (taskId: string, status: 'pending' | 'in_progress' | 'completed') => Promise<void>;
 
   startTimer: (projectId: string, description: string, taskId?: string) => Promise<void>;
@@ -213,6 +215,34 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const updateTask = async (taskId: string, updates: Partial<Task>) => {
+    try {
+      const payload: any = {};
+      if (updates.title) payload.title = updates.title;
+      if (updates.description) payload.description = updates.description;
+      if (updates.projectId) payload.project_id = updates.projectId;
+      if (updates.assignedTo) payload.assigned_to = updates.assignedTo;
+      if (updates.status) payload.status = updates.status;
+
+      const { error } = await supabase.from('tasks').update(payload).eq('id', taskId);
+
+      if (error) throw error;
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...updates } : t));
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
+  const deleteTask = async (taskId: string) => {
+    try {
+      const { error } = await supabase.from('tasks').delete().eq('id', taskId);
+      if (error) throw error;
+      setTasks(prev => prev.filter(t => t.id !== taskId));
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
   const updateTaskStatus = async (taskId: string, status: 'pending' | 'in_progress' | 'completed') => {
     try {
       const { error } = await supabase.from('tasks').update({ status }).eq('id', taskId);
@@ -380,6 +410,8 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       addProject,
       deleteProject,
       addTask,
+      updateTask,
+      deleteTask,
       updateTaskStatus,
       startTimer,
       stopTimer,

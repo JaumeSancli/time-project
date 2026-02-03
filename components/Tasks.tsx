@@ -2,204 +2,184 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { Task, Project } from '../types';
-import { Modal, Input, Button, Select, List, Tag, message } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { Modal, Input, Button, Select, List, Tag, message, Popconfirm, Tooltip } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { useTime } from '../context/TimeContext';
+import { useAuth } from '../context/AuthContext';
 
 const { Option } = Select;
 const { TextArea } = Input;
 
-export const Tasks: React.FC = () => {
-    const [tasks, setTasks] = useState<Task[]>([]);
-    const [projects, setProjects] = useState<Project[]>([]);
-    const [users, setUsers] = useState<any[]>([]); // We'll fetch profiles/users
-    const [loading, setLoading] = useState(false);
-    const [isModalVisible, setIsModalVisible] = useState(false);
-    const [newTask, setNewTask] = useState<Partial<Task>>({ status: 'pending' });
+const { tasks, projects, addTask, updateTask, deleteTask, updateTaskStatus } = useTime();
+const [users, setUsers] = useState<any[]>([]); // Fetch profiles/users
+const [isModalVisible, setIsModalVisible] = useState(false);
+const [isEditMode, setIsEditMode] = useState(false);
+const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
+const [newTask, setNewTask] = useState<Partial<Task>>({ status: 'pending' });
+const { user } = useAuth();
 
-    useEffect(() => {
-        fetchTasks();
-        fetchProjects();
-        fetchUsers();
-    }, []);
+useEffect(() => {
+    fetchUsers();
+}, []);
 
-    const fetchTasks = async () => {
-        setLoading(true);
-        const { data, error } = await supabase
-            .from('tasks')
-            .select('*')
-            .order('created_at', { ascending: false });
+// Fetch users (profiles)
+const fetchUsers = async () => {
+    const { data } = await supabase.from('profiles').select('*');
+    if (data) setUsers(data);
+};
 
-        if (error) message.error('Error fetching tasks');
-        else setTasks(data || []);
-        setLoading(false);
-    };
+const fetchProjects = async () => {
+    const { data } = await supabase.from('projects').select('*');
+    if (data) setProjects(data);
+};
 
-    const fetchProjects = async () => {
-        const { data } = await supabase.from('projects').select('*');
-        if (data) setProjects(data);
-    };
+// Currently we use profiles from timeflow schema
+const fetchUsers = async () => {
+    // Depending on RLS, we might only see some users. 
+    // For now, let's assume we can see profiles or just use current user 
+    // If we want to assign to others, we need a way to list them.
+    // We'll try to fetch profiles.
+    const { data } = await supabase.from('profiles').select('*');
+    if (data) setUsers(data);
+};
 
-    // Currently we use profiles from timeflow schema
-    const fetchUsers = async () => {
-        // Depending on RLS, we might only see some users. 
-        // For now, let's assume we can see profiles or just use current user 
-        // If we want to assign to others, we need a way to list them.
-        // We'll try to fetch profiles.
-        const { data } = await supabase.from('profiles').select('*');
-        if (data) setUsers(data);
-    };
+const handleSaveTask = async () => {
+    if (!newTask.title || !newTask.projectId) {
+        message.error('Por favor, rellena los campos obligatorios');
+        return;
+    }
 
-    const handleCreateTask = async () => {
-        if (!newTask.title || !newTask.projectId) {
-            message.error('Please fill in required fields');
-            return;
-        }
+    if (isEditMode && currentTaskId) {
+        await updateTask(currentTaskId, newTask);
+        message.success('Tarea actualizada correctamente');
+    } else {
+        await addTask(newTask.projectId, newTask.title, newTask.description, newTask.assignedTo);
+        message.success('Tarea creada correctamente');
+    }
+    setIsModalVisible(false);
+    setNewTask({ status: 'pending' });
+    setIsEditMode(false);
+    setCurrentTaskId(null);
+};
 
-        const user = await supabase.auth.getUser();
-        const userId = user.data.user?.id;
+const handleEditClick = (task: Task) => {
+    setNewTask({
+        title: task.title,
+        projectId: task.projectId,
+        assignedTo: task.assignedTo,
+        description: task.description,
+        status: task.status
+    });
+    setCurrentTaskId(task.id);
+    setIsEditMode(true);
+    setIsModalVisible(true);
+};
 
-        if (!userId) {
-            message.error('User not authenticated');
-            return;
-        }
+const handleDeleteClick = async (taskId: string) => {
+    await deleteTask(taskId);
+    message.success('Tarea eliminada');
+};
 
-        const taskData = {
-            ...newTask,
-            created_by: userId,
-            assigned_to: newTask.assignedTo || userId, // Default assign to self
-            project_id: newTask.projectId, // mapped correctly in insert
-            status: newTask.status || 'pending'
-        };
+const handleStatusChange = async (taskId: string, status: 'pending' | 'in_progress' | 'completed') => {
+    await updateTaskStatus(taskId, status);
+    message.success('Estado actualizado');
+};
 
-        // transform camelCase to snake_case for DB if needed, but supabase-js handles it if configured, 
-        // BUT we defined table with snake_case. 
-        // Let's ensure keys match DB columns
-        const dbPayload = {
-            title: taskData.title,
-            description: taskData.description,
-            project_id: taskData.projectId,
-            status: taskData.status,
-            assigned_to: taskData.assignedTo,
-            created_by: userId
-        };
+const openCreateModal = () => {
+    setNewTask({ status: 'pending' });
+    setIsEditMode(false);
+    setCurrentTaskId(null);
+    setIsModalVisible(true);
+};
 
-        const { data, error } = await supabase
-            .from('tasks')
-            .insert([dbPayload])
-            .select();
-
-        if (error) {
-            message.error('Error creating task: ' + error.message);
-        } else {
-            message.success('Task created successfully');
-            setIsModalVisible(false);
-            setNewTask({ status: 'pending' });
-            fetchTasks();
-        }
-    };
-
-    const handleStatusChange = async (taskId: string, status: string) => {
-        const { error } = await supabase
-            .from('tasks')
-            .update({ status })
-            .eq('id', taskId);
-
-        if (error) message.error('Failed to update status');
-        else {
-            message.success('Status updated');
-            fetchTasks();
-        }
-    };
-
-    return (
-        <div style={{ padding: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
-                <h2>Tasks</h2>
-                <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalVisible(true)}>
-                    New Task
-                </Button>
-            </div>
-
-            <List
-                loading={loading}
-                dataSource={tasks}
-                renderItem={(task) => {
-                    const project = projects.find(p => p.id === task.projectId);
-                    // Handling snake_case response from Supabase if types don't confirm
-                    // Actually supabase-js returns what DB has. 
-                    // So task might have project_id, assigned_to etc.
-                    // We should Type cast or map. 
-                    // Let's assume for now we use the raw data from DB in render or map it.
-                    // To be safe, let's treat task as any here or map it in fetch.
-                    // Let's stick effectively to what we get.
-                    const rawTask: any = task;
-
-                    return (
-                        <List.Item
-                            actions={[
-                                <Select
-                                    defaultValue={rawTask.status}
-                                    style={{ width: 120 }}
-                                    onChange={(val) => handleStatusChange(rawTask.id, val)}
-                                >
-                                    <Option value="pending">Pending</Option>
-                                    <Option value="in_progress">In Progress</Option>
-                                    <Option value="completed">Completed</Option>
-                                </Select>
-                            ]}
-                        >
-                            <List.Item.Meta
-                                title={
-                                    <span>
-                                        {rawTask.title} <Tag color="blue">{projects.find(p => p.id === rawTask.project_id)?.name}</Tag>
-                                    </span>
-                                }
-                                description={rawTask.description}
-                            />
-                            <div>Assigned: {users.find(u => u.id === rawTask.assigned_to)?.full_name || 'Unassigned'}</div>
-                        </List.Item>
-                    );
-                }}
-            />
-
-            <Modal
-                title="Create New Task"
-                open={isModalVisible}
-                onOk={handleCreateTask}
-                onCancel={() => setIsModalVisible(false)}
-            >
-                <Input
-                    placeholder="Task Title"
-                    style={{ marginBottom: 10 }}
-                    value={newTask.title}
-                    onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                />
-                <Select
-                    placeholder="Select Project"
-                    style={{ width: '100%', marginBottom: 10 }}
-                    onChange={(val) => setNewTask({ ...newTask, projectId: val })}
-                >
-                    {projects.map(p => (
-                        <Option key={p.id} value={p.id}>{p.name}</Option>
-                    ))}
-                </Select>
-                <Select
-                    placeholder="Assign To"
-                    style={{ width: '100%', marginBottom: 10 }}
-                    onChange={(val) => setNewTask({ ...newTask, assignedTo: val })}
-                    allowClear
-                >
-                    {users.map(u => (
-                        <Option key={u.id} value={u.id}>{u.full_name || u.email}</Option>
-                    ))}
-                </Select>
-                <TextArea
-                    placeholder="Description"
-                    rows={4}
-                    value={newTask.description}
-                    onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-                />
-            </Modal>
+return (
+    <div style={{ padding: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
+            <h2>Tareas</h2>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
+                Nueva Tarea
+            </Button>
         </div>
-    );
+
+        <List
+            dataSource={tasks}
+            renderItem={(task) => {
+                return (
+                    <List.Item
+                        actions={[
+                            <Select
+                                defaultValue={task.status}
+                                style={{ width: 140 }}
+                                onChange={(val) => handleStatusChange(task.id, val)}
+                            >
+                                <Option value="pending">Pendiente</Option>
+                                <Option value="in_progress">En Progreso</Option>
+                                <Option value="completed">Completada</Option>
+                            </Select>,
+                            <Tooltip title="Editar">
+                                <Button icon={<EditOutlined />} onClick={() => handleEditClick(task)} />
+                            </Tooltip>,
+                            <Popconfirm title="¿Estás seguro de eliminar esta tarea?" onConfirm={() => handleDeleteClick(task.id)}>
+                                <Button icon={<DeleteOutlined />} danger />
+                            </Popconfirm>
+                        ]}
+                    >
+                        <List.Item.Meta
+                            title={
+                                <span>
+                                    {task.title} <Tag color="blue">{projects.find(p => p.id === task.projectId)?.name}</Tag>
+                                </span>
+                            }
+                            description={task.description}
+                        />
+                        <div>Asignado a: {users.find(u => u.id === task.assignedTo)?.full_name || 'Sin asignar'}</div>
+                    </List.Item>
+                );
+            }}
+        />
+
+        <Modal
+            title={isEditMode ? "Editar Tarea" : "Crear Nueva Tarea"}
+            open={isModalVisible}
+            onOk={handleSaveTask}
+            onCancel={() => setIsModalVisible(false)}
+            okText="Guardar"
+            cancelText="Cancelar"
+        >
+            <Input
+                placeholder="Título de la tarea"
+                style={{ marginBottom: 10 }}
+                value={newTask.title}
+                onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+            />
+            <Select
+                placeholder="Seleccionar Proyecto"
+                style={{ width: '100%', marginBottom: 10 }}
+                value={newTask.projectId}
+                onChange={(val) => setNewTask({ ...newTask, projectId: val })}
+            >
+                {projects.map(p => (
+                    <Option key={p.id} value={p.id}>{p.name}</Option>
+                ))}
+            </Select>
+            <Select
+                placeholder="Asignar a"
+                style={{ width: '100%', marginBottom: 10 }}
+                value={newTask.assignedTo}
+                onChange={(val) => setNewTask({ ...newTask, assignedTo: val })}
+                allowClear
+            >
+                {users.map(u => (
+                    <Option key={u.id} value={u.id}>{u.full_name || u.email}</Option>
+                ))}
+            </Select>
+            <TextArea
+                placeholder="Descripción"
+                rows={4}
+                value={newTask.description}
+                onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
+            />
+        </Modal>
+    </div>
+);
 };
