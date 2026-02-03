@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
 import { Row, Col, Card, List, Button, Input, Modal, Form, Select, ColorPicker, Typography, Popconfirm, Tag, Empty, Checkbox } from 'antd';
-import { PlusOutlined, DeleteOutlined, UserOutlined, ProjectOutlined, TeamOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, UserOutlined, ProjectOutlined, TeamOutlined, EditOutlined } from '@ant-design/icons';
 import { useTime } from '../context/TimeContext';
 
 const { Title } = Typography;
 const { Option } = Select;
 
 export const Management: React.FC = () => {
-  const { clients, projects, addClient, deleteClient, addProject, deleteProject } = useTime();
+  const { clients, projects, addClient, deleteClient, addProject, updateProject, deleteProject } = useTime();
 
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<any>(null); // State for editing project
   const [formClient] = Form.useForm();
   const [formProject] = Form.useForm();
 
@@ -22,9 +23,33 @@ export const Management: React.FC = () => {
 
   const handleCreateProject = (values: { name: string; clientId: string; color: any; isShared: boolean }) => {
     const colorHex = typeof values.color === 'string' ? values.color : values.color.toHexString();
-    addProject(values.name, values.clientId, colorHex, values.isShared);
+
+    if (editingProject) {
+      updateProject(editingProject.id, values.name, values.clientId, colorHex, values.isShared);
+    } else {
+      addProject(values.name, values.clientId, colorHex, values.isShared);
+    }
+
     setIsProjectModalOpen(false);
     formProject.resetFields();
+    setEditingProject(null);
+  };
+
+  const openEditProjectModal = (project: any) => {
+    setEditingProject(project);
+    formProject.setFieldsValue({
+      name: project.name,
+      clientId: project.clientId,
+      color: project.color,
+      isShared: project.isShared
+    });
+    setIsProjectModalOpen(true);
+  };
+
+  const openCreateProjectModal = () => {
+    setEditingProject(null);
+    formProject.resetFields();
+    setIsProjectModalOpen(true);
   };
 
   return (
@@ -70,7 +95,7 @@ export const Management: React.FC = () => {
         <Col xs={24} md={12}>
           <Card
             title={<><ProjectOutlined className="mr-2" /> Proyectos</>}
-            extra={<Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setIsProjectModalOpen(true)} disabled={clients.length === 0}>Nuevo</Button>}
+            extra={<Button type="primary" size="small" icon={<PlusOutlined />} onClick={openCreateProjectModal} disabled={clients.length === 0}>Nuevo</Button>}
             className="shadow-sm h-full"
           >
             {projects.length === 0 ? (
@@ -84,6 +109,7 @@ export const Management: React.FC = () => {
                   return (
                     <List.Item
                       actions={[
+                        <Button type="text" icon={<EditOutlined />} onClick={() => openEditProjectModal(project)} />,
                         <Popconfirm title="¿Eliminar proyecto?" onConfirm={() => deleteProject(project.id)}>
                           <Button type="text" danger icon={<DeleteOutlined />} />
                         </Popconfirm>
@@ -117,7 +143,7 @@ export const Management: React.FC = () => {
       </Modal>
 
       {/* Project Modal */}
-      <Modal title="Añadir Proyecto" open={isProjectModalOpen} onCancel={() => setIsProjectModalOpen(false)} footer={null}>
+      <Modal title={editingProject ? "Editar Proyecto" : "Añadir Proyecto"} open={isProjectModalOpen} onCancel={() => setIsProjectModalOpen(false)} footer={null}>
         <Form form={formProject} onFinish={handleCreateProject} layout="vertical" initialValues={{ color: '#1677ff' }} className="mt-4">
           <Form.Item name="name" label="Nombre del proyecto" rules={[{ required: true, message: 'Introduce un nombre' }]}>
             <Input placeholder="Ej: Rediseño web" />
@@ -135,7 +161,7 @@ export const Management: React.FC = () => {
           </Form.Item>
           <div className="flex justify-end gap-2">
             <Button onClick={() => setIsProjectModalOpen(false)}>Cancelar</Button>
-            <Button type="primary" htmlType="submit">Crear</Button>
+            <Button type="primary" htmlType="submit">{editingProject ? "Guardar" : "Crear"}</Button>
           </div>
         </Form>
       </Modal>

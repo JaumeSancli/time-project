@@ -17,6 +17,7 @@ interface TimeContextType {
   addClient: (name: string) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
   addProject: (name: string, clientId: string, color: string, isShared: boolean) => Promise<void>;
+  updateProject: (id: string, name: string, clientId: string, color: string, isShared: boolean) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   addTask: (projectId: string, title: string, description?: string, assignedTo?: string) => Promise<void>;
   updateTask: (taskId: string, updates: Partial<Task>) => Promise<void>;
@@ -171,6 +172,25 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isShared: data.is_shared
       };
       setProjects(prev => [...prev, newProject]);
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
+  const updateProject = async (id: string, name: string, clientId: string, color: string, isShared: boolean) => {
+    try {
+      const { error } = await supabase.from('projects').update({
+        name,
+        client_id: clientId,
+        color,
+        is_shared: isShared
+      }).eq('id', id);
+
+      if (error) throw error;
+
+      setProjects(prev => prev.map(p =>
+        p.id === id ? { ...p, name, clientId, color, isShared } : p
+      ));
     } catch (e: any) {
       message.error(e.message);
     }
@@ -408,6 +428,7 @@ export const TimeProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       addClient,
       deleteClient,
       addProject,
+      updateProject,
       deleteProject,
       addTask,
       updateTask,
